@@ -1,0 +1,95 @@
+---
+title: "C5.0 Decision Tree"
+author: Zhen Trinh
+output:
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+rm(list=ls()) ### To clear namespace
+library(knitr)
+opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+## Load in required packages
+```{r packages}
+library(caret)
+library(C50)
+```
+
+## Read in data
+```{r loaddata}
+subjects.new <- read.csv("Data/subjects.new.csv")
+train <- read.csv("Data/train.csv")
+test <- read.csv("Data/test.csv")
+validation <- read.csv("Data/validation.csv")
+```
+
+## Fit the model
+```{r fitmodel}
+model.tree <- C5.0(train[-9], train$Activity)
+```
+
+## Evaluate model performance 
+```{r modelperformance}
+pred.tree <- predict(model.tree, validation)
+confusionMatrix(pred.tree, validation$Activity)
+```
+   
+### The 95% prediction interval of the model is (90.08%, 91.45%). 
+
+## Evaluate model with 10-fold cross validation
+```{r cross-validation}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the svm model to all folds created 
+cv.results.tree <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.tree <- C5.0(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.tree <- predict(cv.model.tree, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.tree == cv.test$Activity)
+  return(accuracy)
+})
+
+# View the accuracy of each fold
+str(cv.results.tree)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.tree))
+```
+
+### The mean accuracy of 10-fold cross-validation is 91.01%. 
+   
+## Tune the model
+```{r modeltuning}
+set.seed(7)
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+m.tree <- train(Activity ~., data = rbind(train, validation), method = "C5.0",
+                preProc = c("center", "scale"),
+                trControl = ctrl, tuneLength = 5)
+
+m.tree
+```
+     
+### The final model included parameters trails = 40, model = rules, and winnow = TRUE. 
+    
+## Apply the tuned model to unseen data - test
+```{r test}
+p.tree <- predict(m.tree, test)
+confusionMatrix(p.tree, test$Activity)
+```
+   
+### The 95% prediction interval of the tuned decision tree model increases to (94.12%, 95.19%).

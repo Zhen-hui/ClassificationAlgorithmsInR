@@ -1,0 +1,132 @@
+---
+title: "Signiture Project"
+subtitle: "Support Vector Machine (SVM)"
+author: Zhenhui Trinh
+output:
+  pdf_document: default
+---
+
+## Read in data
+```{r}
+subjects.new <- read.csv("subjects.new.csv")
+train <- read.csv("train.csv")
+test <- read.csv("test.csv")
+validation <- read.csv("validation.csv")
+```
+
+## Fit SVM model
+```{r, message=FALSE}
+# Load the libraries
+library(caret)
+library(kernlab)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Fit svm() function to the training dataset 
+model.svm <- ksvm(Activity ~., data = train)
+model.svm
+```
+    
+This model uses cost value of 1 and sigma value of 0.11, let's check the model's performance by applying the model on validation dataset.
+   
+## Check model performance
+```{r}
+# Apply the model to validation dataset 
+pred.svm <- predict(model.svm, validation)
+
+# Create a confusion matrix consisting of true class and predicted class
+confusionMatrix(pred.svm, validation$Activity)
+```
+    
+The 95% prediction interval of the model is (93.18%, 94.33%), which is not bad, but we will do a 10-fold cross-validation and tune the parameters to select the best model. 
+
+## Evaluate model with 10-fold cross-validation
+```{r}
+# Combine train and validation datasets to tune the parameters of the model 
+svm.tune.data <- rbind(train,validation)
+
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Tuning parameters to find the best cost and gamma values 
+tune.svm <- list(type = "Classification", library = "kernlab")
+
+# The parameters element
+para <- data.frame(parameter = c("C", "sigma"), class = rep("character",2), 
+                         label = c("Cost", "Sigma"))
+
+# The grid element
+svmGrid <- function(x, y, len = NULL, search = "grid") {
+  library(kernlab)
+  
+  # Produce low, middle, high values for sigma
+  sigmas <- sigest(as.matrix(x), na.action = na.omit, scaled = T)
+  
+  # To use grid search
+  if (search == "grid") {
+    out <- expand.grid(sigma = mean(as.vector(sigmas[-2])), C = 2^((1:len) - 3))
+  }
+  else {
+  # Define ranges for the parameters then generate random values
+    rng <- extendrange(log(sigmas), f=.75)
+    out <- data.frame(sigma = exp(runif(len, min = rng[1], max = rng[2])), 
+                      C = 2^runif(len, min = -5, max = 8))
+  }
+  out
+}
+
+# The fit element
+svmFit <- function(x, y, wts, param, lev, last, weights, classProbs, ...) {
+  ksvm(x = as.matrix(x), y = y,
+       kernel = rbfdot,
+       kpar = list(sigma = param$sigma),
+       C = param$C,
+       prob.model = classProbs,
+       ...)
+}
+
+# The predict element
+svmPred <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata)
+
+# The predict element
+svmProb <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata, type="probabilities")
+
+# The sort element
+svmSort <- function(x) x[order(x$C),]
+
+# The levels element
+tune.svm$levels <- function(x) lev(x)
+
+# Assign all the elements to the model list
+tune.svm$parameters <- para
+tune.svm$grid <- svmGrid
+tune.svm$fit <- svmFit
+tune.svm$predict <- svmPred
+tune.svm$prob <- svmProb
+tune.svm$sort <- svmSort
+
+# Fit the model
+set.seed(7)
+m.svm <- train(Activity ~., data = svm.tune.data, method = tune.svm, 
+               preProc = c("center", "scale"),
+               trControl = ctrl, tuneLength = 5)
+m.svm
+```
+    
+As the result indicate, the final values used for the model were C = 4 and sigma = 0.1125701.  
+
+## Apply the tuned model to unseen data - test
+```{r}
+p.svm <- predict(m.svm, test)
+confusionMatrix(p.svm, test$Activity)
+```
+     
+After tuning, the 95% prediction interval of the model increase to (94.61%, 95.64%).    
+
+
