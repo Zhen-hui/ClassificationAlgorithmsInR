@@ -1,0 +1,596 @@
+---
+title: "DA 5030 Signiture Project"
+author: Zhenhui Trinh
+output:
+  pdf_document: default
+---
+
+This project uses the mHealth dataset from UCI machine learning repository to classify/predict activity types based on data such as acceleration, rate of turn, magnetic field orientation, ECG measurements, etc. The zip file downloaded from the repository contains 10 individual log files for 10 individuals, but we will only use the first subject's data to apply machine learning algorithms. The activity set is listed in the following: 
+   
+L1: Standing still (1 min) 
+  
+L2: Sitting and relaxing (1 min) 
+  
+L3: Lying down (1 min)
+  
+L4: Walking (1 min) 
+  
+L5: Climbing stairs (1 min) 
+  
+L6: Waist bends forward (20x) 
+  
+L7: Frontal elevation of arms (20x) 
+  
+L8: Knees bending (crouching) (20x) 
+  
+L9: Cycling (1 min) 
+  
+L10: Jogging (1 min) 
+  
+L11: Running (1 min) 
+  
+L12: Jump front & back (20x) 
+    
+       
+The meaning of each column is detailed next: 
+   
+Column 1: acceleration from the chest sensor (X axis) 
+  
+Column 2: acceleration from the chest sensor (Y axis) 
+  
+Column 3: acceleration from the chest sensor (Z axis) 
+  
+Column 4: electrocardiogram signal (lead 1) 
+  
+Column 5: electrocardiogram signal (lead 2) 
+  
+Column 6: acceleration from the left-ankle sensor (X axis) 
+   
+Column 7: acceleration from the left-ankle sensor (Y axis) 
+  
+Column 8: acceleration from the left-ankle sensor (Z axis) 
+  
+Column 9: gyro from the left-ankle sensor (X axis) 
+  
+Column 10: gyro from the left-ankle sensor (Y axis) 
+   
+Column 11: gyro from the left-ankle sensor (Z axis) 
+  
+Column 13: magnetometer from the left-ankle sensor (X axis) 
+  
+Column 13: magnetometer from the left-ankle sensor (Y axis) 
+  
+Column 14: magnetometer from the left-ankle sensor (Z axis) 
+  
+Column 15: acceleration from the right-lower-arm sensor (X axis) 
+  
+Column 16: acceleration from the right-lower-arm sensor (Y axis) 
+  
+Column 17: acceleration from the right-lower-arm sensor (Z axis) 
+  
+Column 18: gyro from the right-lower-arm sensor (X axis) 
+   
+Column 19: gyro from the right-lower-arm sensor (Y axis) 
+  
+Column 20: gyro from the right-lower-arm sensor (Z axis) 
+  
+Column 21: magnetometer from the right-lower-arm sensor (X axis) 
+  
+Column 22: magnetometer from the right-lower-arm sensor (Y axis) 
+  
+Column 23: magnetometer from the right-lower-arm sensor (Z axis) 
+     
+Column 24: Label (0 for the null class)     
+
+## Preprocess Data 
+```{r, message=FALSE}
+# Define a function to load and preprocessing data
+prep.fun <- function(path){
+  
+  # Read in dataset 
+  df <- read.table(path, header = F)
+  
+  # Remove transition activity (denoted as 0 in ACTIVITY column) from analysis
+  return(df[!(df$V24 == 0),])
+}
+
+# Use plyr package to open all 10 files at once
+library(plyr)
+
+# Apply prep.fun to the file then combine results into a data frame  
+subject1 <- ldply(.data = "mHealth_subject1.log", .fun = prep.fun)
+```
+
+## Detect NAs
+```{r}
+apply(subject1, 2, function(x) any(is.na(x)))
+```
+    
+There is no missing values across the dataset, so we need not to worry about imputing missing data.
+  
+## Normalize features    
+Since the scale used for the values of each variable is different, we are going to transform all the values to a common scale using min-max transformation so that all data has a minimum of 0 and maximum of 1.  
+     
+```{r}
+# Define the min-max normalization function 
+norm.fun <- function(x){
+  z <- (x-min(x))/(max(x)-min(x))
+  return(z) 
+}
+
+# Apply the normalization function to all numeric features
+subject1[1:23] <- as.data.frame(lapply(subject1[1:23], norm.fun))
+```
+
+## Check for skewness
+```{r,results='hide',fig.keep='all'}
+# Load the library
+library(rcompanion)
+
+# Define a function to plot histogram of each feature 
+norm.plot.fun <- function (index) {
+  plotNormalHistogram(subject1[,index], main = names(subject1)[index])
+}
+
+# Fit all the graphs into one page
+par(mfrow=c(3,3))
+
+# Apply the plot function to all columns of the data
+lapply(1:24, FUN = norm.plot.fun)
+```
+          
+The data seems to be fairly normally distributed, thus we can apply parametric tests on the data. Although there are some skewnesses in some of the features, because they are so small that we need not to transform them. Plus, since we are going to use all the variables in the same analysis, we have to apply the same transformation to all of them. It makes no sense to transform already normally distrubuted data, which is a mojority of them. 
+    
+## Detect outliers 
+```{r}
+# Use boxplots to visualuze outliers in every feature 
+boxplot(subject1[1:23])
+```
+          
+Except for V18 and V20, all other variables have a significant amount of outliers. While V9,V11, and V19 only have outliers on the lower bound, V16 only has outliers on the upper bound. 
+          
+We are going to treat the outliers by applying the tsclean() function, which fits a robust trend using loess (for non-seasonal series) in the forecast package. The residuals are computed and the upper bound and lower bounds are computed as: $U = q_{0.9} + 2(q_{0.9} - q_{0.1})$; $L = q_{0.9} - 2(q_{0.9} - q_{0.1})$ where $q_{0.1}$ and $q_{0.9}$ are the 10th and 90th percentiles of the residuals respectively. 
+        
+## Treat outliers            
+```{r, message=FALSE}
+# Load the package
+library(forecast)
+
+# Apply tsclean() function to all the features
+subject1[1:23] <- as.data.frame(lapply(subject1[1:23], tsclean))
+```
+
+## Check correlation 
+```{r, message=FALSE}
+library(caret)
+# Get a correlation matrix
+cor.matrix <- cor(subject1)
+
+# Find attributes that are highly correlated with a cutoff value of 0.75
+highlyCorrelated <- findCorrelation(cor.matrix, cutoff = 0.75)
+highlyCorrelated
+
+# Visualize the correlations among the variables using corrplot package
+library(corrplot)
+
+# Plot the correlation and order the matrix according to first component order
+corrplot(cor.matrix,order = "FPC")
+```
+     
+We can be sure that none of the attribute is highly correlated with another, i.e. there is no redundancy in the data. V24 is the response variable we are interested in. It seems that compared to all other variables, V20 and V19, which are readings from gyroscope, have more correlation with the response variable. 
+    
+## Feature selection with PCA
+  
+Principal component analysis (PCA) is a descriptive method to analyze dependencies (correlations) between variables. We will use PCA to determine which features should be included in the machine learning models. 
+    
+```{r}
+# Perform PCA on training set, set scale. = T so that standard deviation = 1 
+pca <- prcomp(subject1, scale. = T)
+
+# Print out summary of the PCA fit 
+summary(pca)
+```
+       
+We see that the first 21 components explained 98% of total variation. We can use a scree plot to decide how many components we want to include in the machine learning models. 
+      
+```{r}
+# Save the proportion of variance of each PC (2nd row)
+p.var <- summary(pca)$importance[2,]
+
+# Plot PCAs and the proportion of variance explained 
+plot(1:length(p.var), p.var, xlab = "Number of PCAs", 
+     ylab = "Proportion of variance explained", type = "o")
+```
+     
+It appears that the first component explains most of the variance, and there is a sharp drop afterwards. The curve has a significant bend at n=8, so we will only use the first 8th principal components for the analysis. 
+           
+             
+```{r}
+# Keep only the first 8 principal components for analysis 
+data.pca <- pca$x[,1:8]
+
+# Response variable with true activity 
+Activity <- subject1$V24
+
+# Combine response variable with PCA data
+subjects.new <- data.frame(data.pca, Activity)
+
+# Rename the activity column so it's easier to identify characters from numbers 
+subjects.new$Activity <- paste("L", subjects.new$Activity, sep="")
+
+# Change the class of the activity column to factor 
+subjects.new$Activity <- as.factor(subjects.new$Activity)
+```
+
+## Split data
+```{r}
+# set the seed to make the partition reproductible
+set.seed(123)
+
+# Sample into 3 sets so that the ratio of train:test:validation = 6:2:2
+idx <- sample(seq(1,3), size = nrow(subjects.new), replace = T, 
+              prob = c(.6, .2, .2))
+
+# Divide data into training, testing, and validation sets
+train <- subjects.new[idx == 1, ]
+test <- subjects.new[idx ==2, ]
+validation <- subjects.new[idx ==3, ]
+```
+     
+# 1. Logistic Regression 
+We will use the multinom() function from the nnet package to estimate multinomial logistic regression model because it does not require the data to be reshaped (as the mlogit package does). 
+    
+## Fit the model 
+```{r, message=FALSE, results = "hide"}
+library(nnet)
+model.lr <- multinom(Activity ~., data = train)
+```
+  
+## Check model performance
+```{r message=FALSE}
+# Apply the model on validation dataset 
+pred.lr <- predict(model.lr, validation)
+
+# Load required packages 
+library(e1071)
+
+# Create a confusion matrix comparing the predicted and true activity types
+confusionMatrix(pred.lr, validation$Activity)
+```
+      
+The 95% confidence interval for the model is (84.92%, 86.58%).
+
+## Evaluate model with 10-fold cross-validation
+```{r,results="hide", message=FALSE, warning=FALSE, results="hide"}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the logistic regression model to all folds created 
+cv.results.lr <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.lr <- multinom(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.lr <- predict(cv.model.lr, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.lr == cv.test$Activity)
+  return(accuracy)
+})
+``` 
+
+```{r}
+# View the accuracy of each fold
+str(cv.results.lr)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.lr))
+```
+    
+Similarly, the range of accuracy for the 10-fold cross-validation is 85% to 86%. 
+  
+## Tune the model 
+```{r, results="hide"}
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Set up tuning parameters for multinomial logistic regression model 
+m.lr <- train(Activity ~., data = rbind(train,validation), method = 'multinom', 
+              preProc = c("center", "scale"),
+              trControl = ctrl, tuneLength = 5)
+```
+
+```{r}
+# Examine the result of 10-fold cross validation
+m.lr
+```
+    
+As the footnote describes, the model with the largest accuracy was selected. This was the model that used a penalized multinomial regression with decay = 0.001.   
+
+## Apply tuned model on unseen test data
+```{r}
+# Make prediction
+p.lr <- predict(m.lr, test)
+confusionMatrix(p.lr, test$Activity)
+```
+   
+The 95% confidence interval for the tuned model is (85.09%, 86.73%), which is a tighter range than that of the previous model.
+   
+# Decision Tree
+## Fit the model
+```{r}
+library(C50)
+model.tree <- C5.0(train[-9], train$Activity)
+```
+  
+## Evaluate model performance 
+```{r}
+pred.tree <- predict(model.tree, validation)
+
+confusionMatrix(pred.tree, validation$Activity)
+```
+      
+The 95% confidence interval of the model is (90.08%, 91.45%). 
+    
+## Evaluate model with 10-fold cross-validation
+```{r}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the svm model to all folds created 
+cv.results.tree <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.tree <- C5.0(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.tree <- predict(cv.model.tree, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.tree == cv.test$Activity)
+  return(accuracy)
+})
+
+# View the accuracy of each fold
+str(cv.results.tree)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.tree))
+``` 
+
+The mean accuracy of 10-fold cross-validation is 91.01%. 
+    
+## Tune the model
+```{r}
+set.seed(7)
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+m.tree <- train(Activity ~., data = rbind(train, validation), method = "C5.0",
+                preProc = c("center", "scale"),
+                trControl = ctrl, tuneLength = 5)
+
+m.tree
+```
+     
+The final model included parameters trails = 40, model = rules, and winnow = TRUE. 
+    
+## Apply the tuned model to unseen test data 
+```{r}
+p.tree <- predict(m.tree, test)
+confusionMatrix(p.tree, test$Activity)
+```
+    
+The 95% confidence interval of the tuned decision tree model increases to (94.12%, 95.19%).
+    
+# Support Vector Machine (SVM)
+```{r, message=FALSE}
+# Load the library
+library(kernlab)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Fit svm() function to the training dataset 
+model.svm <- ksvm(Activity ~., data = train)
+model.svm
+```
+     
+This model uses cost value of 1 and sigma value of 0.11, let's check the model's performance by applying the model on validation dataset.
+    
+## Check model performance
+```{r}
+# Apply the model to validation dataset 
+pred.svm <- predict(model.svm, validation)
+
+# Create a confusion matrix consisting of true class and predicted class
+confusionMatrix(pred.svm, validation$Activity)
+```
+      
+The 95% confidence interval of the model is (93.18%, 94.33%), which is not bad, but we will do a 10-fold cross-validation and tune the parameters to select the best model. 
+    
+## Evaluate model with 10-fold cross-validation
+```{r}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the svm model to all folds created 
+cv.results.svm <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.svm <- ksvm(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.svm <- predict(cv.model.svm, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.svm == cv.test$Activity)
+  return(accuracy)
+})
+
+# View the accuracy of each fold
+str(cv.results.svm)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.svm))
+``` 
+    
+The results of 10-fold cross-validation conform with previous prediction. The mean accuracy is around 93.92%. 
+  
+## Tune the model
+```{r, message=FALSE, warning=FALSE}
+# Combine train and validation datasets to tune the parameters of the model 
+svm.tune.data <- rbind(train,validation)
+
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Tuning parameters to find the best cost and gamma values 
+tune.svm <- list(type = "Classification", library = "kernlab")
+
+# The parameters element
+para <- data.frame(parameter = c("C", "sigma"), class = rep("character",2), 
+                         label = c("Cost", "Sigma"))
+
+# The grid element
+svmGrid <- function(x, y, len = NULL, search = "grid") {
+  library(kernlab)
+  
+  # Produce low, middle, high values for sigma
+  sigmas <- sigest(as.matrix(x), na.action = na.omit, scaled = T)
+  
+  # To use grid search
+  if (search == "grid") {
+    out <- expand.grid(sigma = mean(as.vector(sigmas[-2])), C = 2^((1:len) - 3))
+  }
+  else {
+  # Define ranges for the parameters then generate random values
+    rng <- extendrange(log(sigmas), f=.75)
+    out <- data.frame(sigma = exp(runif(len, min = rng[1], max = rng[2])), 
+                      C = 2^runif(len, min = -5, max = 8))
+  }
+  out
+}
+
+# The fit element
+svmFit <- function(x, y, wts, param, lev, last, weights, classProbs, ...) {
+  ksvm(x = as.matrix(x), y = y,
+       kernel = rbfdot,
+       kpar = list(sigma = param$sigma),
+       C = param$C,
+       prob.model = classProbs,
+       ...)
+}
+
+# The predict element
+svmPred <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata)
+
+# The predict element
+svmProb <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata, type="probabilities")
+
+# The sort element
+svmSort <- function(x) x[order(x$C),]
+
+# The levels element
+tune.svm$levels <- function(x) lev(x)
+
+# Assign all the elements to the model list
+tune.svm$parameters <- para
+tune.svm$grid <- svmGrid
+tune.svm$fit <- svmFit
+tune.svm$predict <- svmPred
+tune.svm$prob <- svmProb
+tune.svm$sort <- svmSort
+
+# Fit the model
+set.seed(7)
+m.svm <- train(Activity ~., data = svm.tune.data, method = tune.svm, 
+               preProc = c("center", "scale"),
+               trControl = ctrl, tuneLength = 5)
+
+# Examine the model
+m.svm
+```
+    
+As the result indicates, the final values used for the model were C = 4 and sigma = 0.1125701.  
+   
+## Apply the tuned model to unseen test data 
+```{r}
+# Make prediction
+p.svm <- predict(m.svm, test)
+
+# Create confusion matrix 
+confusionMatrix(p.svm, test$Activity)
+```
+     
+After tuning, the 95% confidence interval of the model increase to (94.61%, 95.64%).    
+    
+Among the three machine learning models used here, SVM seems to perform the best for this dataset. 
+
+# Ensemble model with Random Forest
+```{r, message=FALSE, warning=FALSE}
+# Load the library
+library(randomForest)
+
+# Set seed to generate reproducible result
+set.seed(7)
+
+# Training the model on training data
+rf <- randomForest(Activity ~., data = train) 
+```
+     
+The random forest included 500 trees and tried 2 variables at each split. The out-of-bag error is 5.47%, which is not bad at all, but we will try if we can make some improvements by tuning the parameters with repeated 10-fold cross-validation. The only tunning parameter is .mtry, which is the number of features to randomly select at each split. Its default value is the square root of the number of features in the dataset. 
+   
+```{r}
+# Set up the tuning grid with the value of 2, 4, 6, and 8
+grid.rf <- expand.grid(.mtry = c(2,4,6,8))
+
+# Set control element to repeated 10-fold cross-validation
+ctrl.rf <- trainControl(method = "repeatedcv", number = 10, repeats = 10)
+
+# Supply the grid.rf and ctrl.rf objects to train() function
+m.rf <- train(Activity~., data = train, method = "rf", metric = "Kappa",
+              preProc = c("center", "scale"),
+              trControl = ctrl, tuneGrid = grid.rf)
+m.rf
+```
+      
+Two variables at each split seems to have the best result, so let's apply the random forest model on test dataset.
+    
+```{r}
+# Make prediction 
+p.rf <- predict(m.rf, test) 
+
+# Create a confusion matrix
+confusionMatrix(p.rf, test$Activity)
+```
+
+The resulting 95% confidence interval is (94.69%, 95.7%), which is similar to that of the svm model. 
+
+
