@@ -1,8 +1,7 @@
 ---
 title: "C5.0 Decision Tree"
 author: Zhen Trinh
-output:
-  pdf_document: default
+output: html_document
 ---
 
 ```{r global_options, include=FALSE}
