@@ -1,8 +1,7 @@
 ---
 title: "Multinomial Logistic Regression"
 author: Zhen Trinh
-output:
-  pdf_document: default
+output: html_document
 ---
 
 ```{r global_options, include=FALSE}
@@ -12,7 +11,7 @@ opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, comment = NA)
 ```
 
 ## Load required libraries
-```{r}
+```{r loadpackage}
 library(nnet)
 library(caret)
 library(e1071)
@@ -26,7 +25,7 @@ test <- read.csv("Data/test.csv")
 validation <- read.csv("Data/validation.csv")
 ```
      
-### We will use the multinom() function from the nnet package to estimate multinomial logistic regression model because it does not require the data to be reshaped (as the mlogit package does). 
+We will use the multinom() function from the nnet package to estimate multinomial logistic regression model because it does not require the data to be reshaped (as the mlogit package does). 
   
 ## Fit the model 
 ```{r fitmodel, results = "hide"}
@@ -42,10 +41,47 @@ pred.lr <- predict(model.lr, validation)
 confusionMatrix(pred.lr, validation$Activity)
 ```
    
-### The 95% prediction interval for the model is (84.92%, 86.58%), we can tune the parameters to get a higher accuracy result. 
+The 95% prediction interval for the model is (84.92%, 86.58%), we can tune the parameters to get a higher accuracy result. 
 
-## 10-fold cross validation
-```{r cross-validation, results="hide"}
+
+## Evaluate model with 10-fold cross-validation
+```{r crossvalidation,results="hide", message=FALSE, warning=FALSE, results="hide"}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the logistic regression model to all folds created 
+cv.results.lr <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.lr <- multinom(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.lr <- predict(cv.model.lr, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.lr == cv.test$Activity)
+  return(accuracy)
+})
+``` 
+
+```{r accuracy}
+# View the accuracy of each fold
+str(cv.results.lr)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.lr))
+```
+    
+Similarly, the range of accuracy for the 10-fold cross-validation is 85% to 86%. 
+  
+## Tune the model 
+```{r modeltuning, results="hide"}
 # Set train control using 10-fold cross validation 
 ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
 
@@ -54,19 +90,22 @@ set.seed(7)
 
 # Set up tuning parameters for multinomial logistic regression model 
 m.lr <- train(Activity ~., data = rbind(train,validation), method = 'multinom', 
+              preProc = c("center", "scale"),
               trControl = ctrl, tuneLength = 5)
+```
 
+```{r tuneresult}
 # Examine the result of 10-fold cross validation
 m.lr
 ```
-  
-### As the footnote describes, the model with the largest accuracy was selected. This was the model that used a penalized multinomial regression with decay = 0. However, the accuracy did not improve much as compared to the previous model.
+    
+As the footnote describes, the model with the largest accuracy was selected. This was the model that used a penalized multinomial regression with decay = 0.001.   
 
 ## Apply tuned model on unseen test data
-```{r predict}
+```{r test}
 # Make prediction
 p.lr <- predict(m.lr, test)
 confusionMatrix(p.lr, test$Activity)
 ```
-
-### The 95% prediction interval for the tuned model is (85.53%, 86.26%), which is a tighter range than that of the previous model. 
+   
+The 95% confidence interval for the tuned model is (85.09%, 86.73%), which is a tighter range than that of the previous model.
