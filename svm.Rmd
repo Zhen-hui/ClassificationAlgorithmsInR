@@ -1,25 +1,31 @@
 ---
-title: "Signiture Project"
-subtitle: "Support Vector Machine (SVM)"
-author: Zhenhui Trinh
-output:
-  pdf_document: default
+title: "Support Vector Machine (SVM)"
+author: Zhen Trinh
+output: html_document
 ---
 
+```{r global_options, include=FALSE}
+rm(list=ls()) ### To clear namespace
+library(knitr)
+opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+## Load in required packages
+```{r packages}
+library(caret)
+library(kernlab)
+```
+
 ## Read in data
-```{r}
-subjects.new <- read.csv("subjects.new.csv")
-train <- read.csv("train.csv")
-test <- read.csv("test.csv")
-validation <- read.csv("validation.csv")
+```{r loaddata}
+subjects.new <- read.csv("Data/subjects.new.csv")
+train <- read.csv("Data/train.csv")
+test <- read.csv("Data/test.csv")
+validation <- read.csv("Data/validation.csv")
 ```
 
 ## Fit SVM model
-```{r, message=FALSE}
-# Load the libraries
-library(caret)
-library(kernlab)
-
+```{r fitmodel}
 # set seed to obtrain reproducible result
 set.seed(7)
 
@@ -29,20 +35,54 @@ model.svm
 ```
     
 This model uses cost value of 1 and sigma value of 0.11, let's check the model's performance by applying the model on validation dataset.
-   
+    
 ## Check model performance
-```{r}
+```{r modelperformance}
 # Apply the model to validation dataset 
 pred.svm <- predict(model.svm, validation)
 
 # Create a confusion matrix consisting of true class and predicted class
 confusionMatrix(pred.svm, validation$Activity)
 ```
+      
+The 95% confidence interval of the model is (93.18%, 94.33%), which is not bad, but we will do a 10-fold cross-validation and tune the parameters to select the best model. 
     
-The 95% prediction interval of the model is (93.18%, 94.33%), which is not bad, but we will do a 10-fold cross-validation and tune the parameters to select the best model. 
-
 ## Evaluate model with 10-fold cross-validation
-```{r}
+```{r crossvalidation}
+# Create 10 folds of datasets for cross-validation
+folds <- createFolds(subjects.new$Activity, k = 10)
+
+# Apply the svm model to all folds created 
+cv.results.svm <- lapply(folds, function(x){
+  
+  # Create training set for each fold
+  cv.train <- subjects.new[-x,]
+  
+  # Create testing set for each fold
+  cv.test <- subjects.new[x,]
+  
+  # Fit svm() function to training set
+  cv.model.svm <- ksvm(Activity ~., data = cv.train)
+  
+  # Apply the model to testing set
+  cv.pred.svm <- predict(cv.model.svm, cv.test)
+  
+  # Compute accuracy of the model 
+  accuracy <- mean(cv.pred.svm == cv.test$Activity)
+  return(accuracy)
+})
+
+# View the accuracy of each fold
+str(cv.results.svm)
+
+# Find the mean accuracy of the 10-fold cross-validated model
+mean(unlist(cv.results.svm))
+``` 
+    
+The results of 10-fold cross-validation conform with previous prediction. The mean accuracy is around 93.92%. 
+  
+## Tune the model
+```{r modeltuning}
 # Combine train and validation datasets to tune the parameters of the model 
 svm.tune.data <- rbind(train,validation)
 
@@ -116,17 +156,22 @@ set.seed(7)
 m.svm <- train(Activity ~., data = svm.tune.data, method = tune.svm, 
                preProc = c("center", "scale"),
                trControl = ctrl, tuneLength = 5)
+
+# Examine the model
 m.svm
 ```
     
-As the result indicate, the final values used for the model were C = 4 and sigma = 0.1125701.  
-
-## Apply the tuned model to unseen data - test
-```{r}
+As the result indicates, the final values used for the model were C = 4 and sigma = 0.1125701.  
+   
+## Apply the tuned model to unseen test data 
+```{r test}
+# Make prediction
 p.svm <- predict(m.svm, test)
+
+# Create confusion matrix 
 confusionMatrix(p.svm, test$Activity)
 ```
      
-After tuning, the 95% prediction interval of the model increase to (94.61%, 95.64%).    
-
-
+After tuning, the 95% confidence interval of the model increase to (94.61%, 95.64%).    
+    
+Among the three machine learning models used here, SVM seems to perform the best for this dataset. 
