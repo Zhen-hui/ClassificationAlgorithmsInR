@@ -1,8 +1,7 @@
 ---
 title: "Data Preprocessing"
 author: Zhen Trinh
-output:
-  pdf_document: default
+output: html_document
 ---
 
 ```{r global_options, include=FALSE}
@@ -40,7 +39,7 @@ subject1 <- ldply(.data = "Data/mHealth_subject1.log", .fun = prep.fun)
 ```{r detectNA}
 apply(subject1, 2, function(x) any(is.na(x)))
 ```
-### There is no missing values across the dataset, so we need not to worry about imputing missing data.
+There is no missing values across the dataset, so we need not to worry about imputing missing data.
 
 ## Normalize features    
 Since the scale used for the values of each variable is different, we are going to transform all the values to a common scale using min-max transformation so that all data has a minimum of 0 and maximum of 1.   
@@ -70,7 +69,7 @@ par(mfrow=c(3,3))
 lapply(1:24, FUN = norm.plot.fun)
 ```
         
-### The data seems to be fairly normally distributed, thus we can apply parametric tests on the data. Although there are some skewnesses in some of the features, because they are so small that we need not to transform them. Plus, since we are going to use all the variables in the same analysis, we have to apply the same transformation to all of them. It makes no sense to transform already normally distrubuted data, which is a mojority of them. 
+The data seems to be fairly normally distributed, thus we can apply parametric tests on the data. Although there are some skewnesses in some of the features, because they are so small that we need not to transform them. Plus, since we are going to use all the variables in the same analysis, we have to apply the same transformation to all of them. It makes no sense to transform already normally distrubuted data, which is a mojority of them. 
 
 ## Detect outliers 
 ```{r outlier}
@@ -78,9 +77,9 @@ lapply(1:24, FUN = norm.plot.fun)
 boxplot(subject1[1:23])
 ```
        
-### Except for V18 and V20, all other variables have a significant amount of outliers. While V9,V11, and V19 only have outliers on the lower bound, V16 only has outliers on the upper bound. 
+Except for V18 and V20, all other variables have a significant amount of outliers. While V9,V11, and V19 only have outliers on the lower bound, V16 only has outliers on the upper bound. 
       
-### We are going to treat the outliers by applying the tsclean() function, which fits a robust trend using loess (for non-seasonal series) in the forecast package. The residuals are computed and the upper bound and lower bounds are computed as: $U = q_{0.9} + 2(q_{0.9} - q_{0.1})$; $L = q_{0.9} - 2(q_{0.9} - q_{0.1})$ where $q_{0.1}$ and $q_{0.9}$ are the 10th and 90th percentiles of the residuals respectively. 
+We are going to treat the outliers by applying the tsclean() function, which fits a robust trend using loess (for non-seasonal series) in the forecast package. The residuals are computed and the upper bound and lower bounds are computed as: $U = q_{0.9} + 2(q_{0.9} - q_{0.1})$; $L = q_{0.9} - 2(q_{0.9} - q_{0.1})$ where $q_{0.1}$ and $q_{0.9}$ are the 10th and 90th percentiles of the residuals respectively. 
 
 ```{r outliertreatment}
 # Apply tsclean() function to all the features
@@ -100,10 +99,10 @@ highlyCorrelated
 corrplot(cor.matrix,order = "FPC")
 ```
    
-### We can be sure that none of the attribute is highly correlated with another, i.e. there is no redundancy in the data. V24 is the response variable we are interested in. It seems that compared to all other variables, V20 and V19, which are readings from gyroscope, have more correlation with the response variable. 
+We can be sure that none of the attribute is highly correlated with another, i.e. there is no redundancy in the data. V24 is the response variable we are interested in. It seems that compared to all other variables, V20 and V19, which are readings from gyroscope, have more correlation with the response variable. 
 
-## Feature selection with PCA
-### Principal component analysis (PCA) is a descriptive method to analyze dependencies (correlations) between variables. We will use PCA to determine which features should be included in the machine learning models. 
+## Feature selection with PCA  
+Principal component analysis (PCA) is a descriptive method to analyze dependencies (correlations) between variables. We will use PCA to determine which features should be included in the machine learning models. 
 ```{r PCA}
 # Perform PCA on training set, set scale. = T so that standard deviation = 1 
 pca <- prcomp(subject1, scale. = T)
@@ -112,7 +111,7 @@ pca <- prcomp(subject1, scale. = T)
 summary(pca)
 ```
     
-### We see that the first 21 components explained 97% of total variation, and the first 23 components explained 99% of total variation. The last component can be ignored without missing much information. We can use a scree plot to aid deciding how many components we want to include in the ML models. 
+We see that the first 21 components explained 97% of total variation, and the first 23 components explained 99% of total variation. The last component can be ignored without missing much information. We can use a scree plot to aid deciding how many components we want to include in the ML models. 
 
 ```{r PCA2}
 # Save the proportion of variance of each PC (2nd row)
@@ -123,7 +122,7 @@ plot(1:length(p.var), p.var, xlab = "Number of PCAs",
      ylab = "Proportion of variance explained", type = "o")
 ```
    
-### It appears that the first component explains most of the variance, and there is a sharp drop afterwards. The curve has a significant bend at n=8, so we will only use the first 8th principal components for the analysis. 
+It appears that the first component explains most of the variance, and there is a sharp drop afterwards. The curve has a significant bend at n=8, so we will only use the first 8th principal components for the analysis. 
 
 ```{r reformatdata}
 # Keep only the first 10 principal components for analysis 
