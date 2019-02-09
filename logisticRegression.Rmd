@@ -1,0 +1,72 @@
+---
+title: "Multinomial Logistic Regression"
+author: Zhen Trinh
+output:
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+rm(list=ls()) ### To clear namespace
+library(knitr)
+opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, comment = NA)
+```
+
+## Load required libraries
+```{r}
+library(nnet)
+library(caret)
+library(e1071)
+```
+
+## Read in data
+```{r readdata}
+subjects.new <- read.csv("Data/subjects.new.csv")
+train <- read.csv("Data/train.csv")
+test <- read.csv("Data/test.csv")
+validation <- read.csv("Data/validation.csv")
+```
+     
+### We will use the multinom() function from the nnet package to estimate multinomial logistic regression model because it does not require the data to be reshaped (as the mlogit package does). 
+  
+## Fit the model 
+```{r fitmodel, results = "hide"}
+model.lr <- multinom(Activity ~., data = train)
+```
+
+## Check model performance
+```{r modelperformance}
+# Apply the model on validation dataset 
+pred.lr <- predict(model.lr, validation)
+
+# Create a confusion matrix comparing the predicted and true activity types
+confusionMatrix(pred.lr, validation$Activity)
+```
+   
+### The 95% prediction interval for the model is (84.92%, 86.58%), we can tune the parameters to get a higher accuracy result. 
+
+## 10-fold cross validation
+```{r cross-validation, results="hide"}
+# Set train control using 10-fold cross validation 
+ctrl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+
+# set seed to obtrain reproducible result
+set.seed(7)
+
+# Set up tuning parameters for multinomial logistic regression model 
+m.lr <- train(Activity ~., data = rbind(train,validation), method = 'multinom', 
+              trControl = ctrl, tuneLength = 5)
+
+# Examine the result of 10-fold cross validation
+m.lr
+```
+  
+### As the footnote describes, the model with the largest accuracy was selected. This was the model that used a penalized multinomial regression with decay = 0. However, the accuracy did not improve much as compared to the previous model.
+
+## Apply tuned model on unseen test data
+```{r predict}
+# Make prediction
+p.lr <- predict(m.lr, test)
+confusionMatrix(p.lr, test$Activity)
+```
+
+### The 95% prediction interval for the tuned model is (85.53%, 86.26%), which is a tighter range than that of the previous model. 
