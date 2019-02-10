@@ -12,3 +12,5 @@ ML models included in this repository include:
    - Support vector machine
 
 Scripts are written as RMD files so that they can be converted to html output. 
+
+Lastly, I also created a poster to visualize the data as an educational material to help people understand the effect of exercise on ECG readings.  
